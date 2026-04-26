@@ -1,12 +1,28 @@
-# Brings up the SMMG notebook + the Cosmos T2.5 API server, networked together.
+# Brings up the SMMG notebook + the Cosmos Transfer 2.5 NIM, networked together.
+#
+# The NIM container is NVIDIA's official inference microservice for Cosmos
+# Transfer 2.5 (`nvcr.io/nim/nvidia/cosmos-transfer2.5-2b:1.0.0`). It loads
+# the four bundled models (Transfer 2.5, Predict 2.5 base, Reason 1, Guardrail)
+# at startup and serves /v1/infer with persistent state + concurrent requests.
+#
+# Auth: requires an NGC API key. Get one at
+#   https://org.ngc.nvidia.com/setup/api-key
+# Then before `docker compose up`:
+#   echo "$NGC_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+# and export NGC_API_KEY=nvapi-...   so the cosmos-nim service inherits it.
 #
 # Usage (from project root):
 #   docker compose -f docker/docker-compose.yml up -d
 #   open http://localhost:8888         (Jupyter Lab on the SMMG notebook)
-#   curl http://localhost:5001/healthz (Cosmos T2.5 API)
+#   curl http://localhost:8000/v1/health/ready   (Cosmos NIM)
 #
-# Notebook reaches the Cosmos service at  http://cosmos-api:5000  on the shared
-# docker network. The host port 5001 is also forwarded for direct testing.
+# The notebook reaches NIM at  http://cosmos-nim:8000  on the shared docker
+# network. The host port 8000 is also forwarded for direct testing.
+#
+# Two-machine deployment: see the project README. Run cosmos-nim on a
+# Hopper / Blackwell host, leave smmg-lab here, and set
+#   COSMOS_API_URL=http://<cosmos-host>:8000
+# on smmg-lab.
 
 services:
   smmg-lab:
@@ -23,27 +39,23 @@ services:
     environment:
       ACCEPT_EULA: "Y"
       OMNI_KIT_ACCEPT_EULA: "YES"
-      # Required for Isaac Sim's Vulkan-based renderer to see the GPU.
-      # `--gpus all` defaults to compute,utility — Vulkan/EGL/graphics need this.
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "all"
-      # Notebook will read this to know where Cosmos lives
-      COSMOS_API_URL: "http://cosmos-api:5000"
+      # Notebook reads this; default targets the in-compose NIM.
+      COSMOS_API_URL: "http://cosmos-nim:8000"
     ports:
       - "8888:8888"
     volumes:
-      # share the host HF cache so weights aren't re-downloaded
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
-      # persistent project data, so generated trajectories survive restarts
       - ../data:/workspace/data:rw
       - ../checkpoints:/workspace/checkpoints:rw
       - ../evaluation:/workspace/evaluation:rw
     networks: [demo-net]
     restart: unless-stopped
 
-  cosmos-api:
-    image: cosmos-transfer2.5:blackwell-api
-    container_name: cosmos-api
+  cosmos-nim:
+    image: nvcr.io/nim/nvidia/cosmos-transfer2.5-2b:1.0.0
+    container_name: cosmos-nim
     runtime: nvidia
     deploy:
       resources:
@@ -52,22 +64,19 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    ipc: host
+    shm_size: "32g"
+    ulimits:
+      nofile: 65536
     environment:
-      HF_TOKEN: "${HF_TOKEN:-}"
+      NGC_API_KEY: "${NGC_API_KEY:?set NGC_API_KEY in your shell — see docker-compose.yml header}"
     ports:
-      - "5001:5000"
+      - "8000:8000"
     volumes:
-      # Bind T2.5 source so the API can find /workspace/examples/inference.py
-      - ../third_party/cosmos-transfer2.5:/workspace
-      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
-      - cosmos-jobs:/tmp/cosmos_jobs
+      # Persists ~30 GB of model weights NIM downloads on first start.
+      - ${HOME}/.cache/nim:/opt/nim/.cache
     networks: [demo-net]
     restart: unless-stopped
 
 networks:
   demo-net:
     driver: bridge
-
-volumes:
-  cosmos-jobs:

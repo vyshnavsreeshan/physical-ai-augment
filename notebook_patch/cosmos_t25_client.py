@@ -1,31 +1,38 @@
-"""Notebook-side client for the Cosmos Transfer 2.5 Flask API.
+"""Notebook-side client for the **NVIDIA Cosmos Transfer 2.5 NIM**.
 
-Replaces SMMG's `cosmos_request.process_video` (which targeted Transfer 1).
-Speaks the T2.5 InferenceArguments schema natively — no parameter translation.
+Talks to nvcr.io/nim/nvidia/cosmos-transfer2.5-2b's `/v1/infer` endpoint
+directly. NIM keeps models loaded persistently and handles concurrent
+requests internally — no submit-then-poll, no per-job warm-up.
+
+Drop-in replacement for the previous Flask-wrapper client. Same `transfer()`
+signature so notebook cells don't change.
 
 Typical use::
 
     from cosmos_t25_client import transfer
 
     out = transfer(
-        api_url="http://cosmos-api:5000",
+        api_url="http://10.79.252.45:8000",
         video_path="_isaaclab_out/shaded_seg.mp4",
         output_path="_cosmos_out/photoreal.mp4",
         prompt="a Franka arm stacks marble cubes in a sunlit kitchen",
         seed=42,
-        guidance=3,
-        num_steps=35,
-        sigma_max=70,
+        guidance_scale=3,
+        steps=35,
         controls={
             "edge": {"control_weight": 0.6},
             "depth": {"control_weight": 0.5},
         },
     )
+
+Endpoints used (reference: NVIDIA NIM docs):
+    GET  /v1/health/ready    → liveness gate
+    POST /v1/infer           → the inference call (sync, returns b64 video)
 """
 
 from __future__ import annotations
 
-import json
+import base64
 import os
 import time
 from pathlib import Path
@@ -35,7 +42,8 @@ import requests
 
 
 def healthz(api_url: str, timeout: float = 5.0) -> dict[str, Any]:
-    r = requests.get(f"{api_url.rstrip('/')}/healthz", timeout=timeout)
+    """Hit NIM's readiness endpoint. Returns the JSON body on success."""
+    r = requests.get(f"{api_url.rstrip('/')}/v1/health/ready", timeout=timeout)
     r.raise_for_status()
     return r.json()
 
@@ -46,45 +54,62 @@ def transfer(
     video_path: str | os.PathLike,
     output_path: str | os.PathLike,
     prompt: str,
-    name: str | None = None,
-    seed: int = 2025,
+    name: str | None = None,                    # kept for API compatibility, unused by NIM
+    seed: int | None = 2025,
     guidance: int = 3,
     num_steps: int = 35,
-    sigma_max: float | str | None = None,
     resolution: str = "720",
     negative_prompt: str | None = None,
+    sigma_max: float | None = None,
+    num_conditional_frames: int = 1,
+    image_context: str | None = None,
     controls: dict[str, dict] | None = None,
-    control_files: dict[str, str | os.PathLike] | None = None,
-    poll_seconds: int = 10,
+    poll_seconds: int = 0,                       # kept for API compat (ignored — NIM is sync)
     max_wait_seconds: int = 3600,
+    request_timeout: int | None = None,          # HTTP timeout in seconds (default ≈ max_wait)
     verbose: bool = True,
+    # Compat shims for parameter renames ───────────────────────────────────
+    guidance_scale: int | None = None,           # alias → guidance
+    steps: int | None = None,                    # alias → num_steps
+    control_files: dict[str, str | os.PathLike] | None = None,  # ignored — NIM takes inline only
 ) -> dict[str, Any]:
-    """Submit a T2.5 transfer job and block until the result is downloaded.
+    """Submit a Cosmos Transfer 2.5 NIM inference and block until result is saved.
 
     Args:
-        api_url: e.g. ``http://cosmos-api:5000`` (inside docker network) or
-                 ``http://localhost:5001`` (from host).
+        api_url: e.g. ``http://<h200>:8000`` (NIM's port is 8000, not 5000).
         video_path: input MP4 (the shaded-segmentation video produced by
                     ``notebook_utils.encode_video``).
         output_path: where to save the photoreal MP4 result on this side.
         prompt: text prompt.
-        name: optional run name; auto-derived from filename if not given.
-        seed, guidance, num_steps, sigma_max, resolution: forwarded to T2.5.
-        negative_prompt: forwarded.
+        name: ignored by NIM, kept for compatibility with the old client.
+        seed, guidance_scale, steps, resolution, negative_prompt: forwarded.
         controls: which controlnet branches to enable, e.g.
-                  ``{"edge": {"control_weight": 0.6, "preset_edge_threshold": "medium"}}``.
-                  Branches with no ``control_path`` and no upload in
-                  ``control_files`` will be computed on-the-fly by T2.5 from
-                  the input video.
-        control_files: optional pre-computed control MP4s, keyed by branch
-                  name ("edge"/"depth"/"seg"/"vis").
-        poll_seconds: status polling interval.
-        max_wait_seconds: how long to wait before giving up.
+                  ``{"edge": {"control_weight": 0.6}, "depth": {"control_weight": 0.5}}``.
+                  Branches with no ``control`` value will be computed on-the-fly
+                  by NIM from the input video.
+        request_timeout: HTTP timeout for the synchronous `/v1/infer` POST.
+                         If None, defaults to ``max_wait_seconds``.
         verbose: print progress.
 
+        guidance / num_steps: legacy parameter names — auto-mapped to
+                              guidance_scale / steps for backward compat.
+        sigma_max, control_files: legacy parameters NIM does not accept;
+                                  silently ignored with a verbose note.
+
     Returns:
-        Dict with at least ``{job_id, status, output_path}``.
+        Dict with ``{job_id, status, output_path, seed}``. ``job_id`` is
+        synthesised from the response timestamp since NIM doesn't issue
+        one — kept for API compatibility.
     """
+    # Map legacy parameter names ───────────────────────────────────────────
+    if guidance_scale is not None:
+        guidance = guidance_scale
+    if steps is not None:
+        num_steps = steps
+    if verbose and control_files:
+        print("[cosmos] note: control_files (pre-computed control mp4s) "
+              "are not currently passed through; NIM will compute controls on-the-fly")
+
     api_url = api_url.rstrip("/")
     video_path = Path(video_path)
     output_path = Path(output_path)
@@ -93,81 +118,71 @@ def transfer(
     if not video_path.exists():
         raise FileNotFoundError(f"input video missing: {video_path}")
 
-    # ── Build the T2.5 spec ────────────────────────────────────────────────
-    spec: dict[str, Any] = {
-        "name": name or video_path.stem,
+    # Build NIM request body ───────────────────────────────────────────────
+    with open(video_path, "rb") as fh:
+        video_b64 = base64.b64encode(fh.read()).decode("ascii")
+
+    body: dict[str, Any] = {
         "prompt": prompt,
-        "seed": int(seed),
+        "video": video_b64,
+        "resolution": str(resolution),
         "guidance": int(guidance),
         "num_steps": int(num_steps),
-        "resolution": str(resolution),
+        "num_conditional_frames": int(num_conditional_frames),
     }
+    if seed is not None:
+        body["seed"] = int(seed)
     if sigma_max is not None:
-        spec["sigma_max"] = str(sigma_max)
+        body["sigma_max"] = float(sigma_max)
     if negative_prompt is not None:
-        spec["negative_prompt"] = negative_prompt
-
+        body["negative_prompt"] = negative_prompt
+    if image_context is not None:
+        body["image_context"] = image_context
     if controls:
         for branch, cfg in controls.items():
             if branch not in {"edge", "depth", "seg", "vis"}:
                 raise ValueError(f"unknown control branch: {branch}")
-            spec[branch] = dict(cfg)  # copy
+            # NIM accepts {"control_weight": float, optional "control": <url|base64>}
+            body[branch] = dict(cfg)
 
-    # ── Submit ─────────────────────────────────────────────────────────────
-    files = {"video": (video_path.name, open(video_path, "rb"), "video/mp4")}
-    if control_files:
-        for branch, p in control_files.items():
-            files[branch] = (Path(p).name, open(p, "rb"), "video/mp4")
+    timeout = request_timeout if request_timeout is not None else max_wait_seconds
 
     if verbose:
-        print(f"[cosmos] submitting to {api_url}/v1/transfer  spec={spec}")
+        # Don't dump the (huge) base64 in the log.
+        log_view = {k: ("<b64 video, %d bytes>" % len(video_b64))
+                       if k == "video" else v for k, v in body.items()}
+        print(f"[cosmos] POST {api_url}/v1/infer  body={log_view}")
 
-    try:
-        r = requests.post(
-            f"{api_url}/v1/transfer",
-            data={"spec": json.dumps(spec)},
-            files=files,
-            timeout=120,
+    t0 = time.time()
+    r = requests.post(
+        f"{api_url}/v1/infer",
+        json=body,
+        headers={"Content-Type": "application/json"},
+        timeout=timeout,
+    )
+    elapsed = time.time() - t0
+
+    if r.status_code != 200:
+        raise RuntimeError(
+            f"NIM /v1/infer returned {r.status_code} after {elapsed:.0f}s:\n"
+            f"{r.text[:2000]}"
         )
-    finally:
-        for _, fh, _ in files.values():
-            try:
-                fh.close()
-            except Exception:
-                pass
 
-    if r.status_code != 202:
-        raise RuntimeError(f"submit failed [{r.status_code}]: {r.text[:500]}")
-    job_id = r.json()["job_id"]
+    payload = r.json()
+    if "b64_video" not in payload:
+        raise RuntimeError(f"NIM response missing b64_video: {list(payload.keys())}")
+
+    video_bytes = base64.b64decode(payload["b64_video"])
+    output_path.write_bytes(video_bytes)
+
     if verbose:
-        print(f"[cosmos] job_id={job_id}, polling…")
+        print(f"[cosmos] saved → {output_path}  "
+              f"({len(video_bytes):,} bytes, {elapsed:.1f}s, seed={payload.get('seed')})")
 
-    # ── Poll ───────────────────────────────────────────────────────────────
-    deadline = time.time() + max_wait_seconds
-    last_status = None
-    while time.time() < deadline:
-        s = requests.get(f"{api_url}/v1/jobs/{job_id}", timeout=30).json()
-        if s.get("status") != last_status:
-            last_status = s.get("status")
-            if verbose:
-                print(f"[cosmos] status={last_status}")
-        if last_status in ("completed", "failed"):
-            break
-        time.sleep(poll_seconds)
-    else:
-        raise TimeoutError(f"job {job_id} not finished after {max_wait_seconds}s")
-
-    if last_status != "completed":
-        log = s.get("log_tail", "")
-        raise RuntimeError(f"job {job_id} failed:\n{log}")
-
-    # ── Download result ────────────────────────────────────────────────────
-    r = requests.get(f"{api_url}/v1/jobs/{job_id}/result", timeout=120, stream=True)
-    r.raise_for_status()
-    with open(output_path, "wb") as out:
-        for chunk in r.iter_content(chunk_size=1 << 20):
-            out.write(chunk)
-    if verbose:
-        print(f"[cosmos] saved → {output_path}")
-
-    return {"job_id": job_id, "status": "completed", "output_path": str(output_path)}
+    return {
+        "job_id": f"nim-{int(t0)}",
+        "status": "completed",
+        "output_path": str(output_path),
+        "seed": payload.get("seed"),
+        "elapsed_seconds": elapsed,
+    }

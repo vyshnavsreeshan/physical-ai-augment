@@ -28,13 +28,13 @@ URL_CELL = """\
 import ipywidgets as widgets
 import os
 
-# In docker compose this resolves to the cosmos-api service. Override at the
-# Jupyter prompt if running outside the compose network.
-default_url = os.environ.get("COSMOS_API_URL", "http://cosmos-api:5000")
+# Default points at the NVIDIA Cosmos Transfer 2.5 NIM (port 8000).
+# Override at the Jupyter prompt if NIM lives on a different host.
+default_url = os.environ.get("COSMOS_API_URL", "http://cosmos-nim:8000")
 url_widget = widgets.Text(
     value=default_url,
     placeholder="http://host:port",
-    description="Cosmos API URL:",
+    description="Cosmos NIM URL:",
     style={"description_width": "initial"},
     layout={"width": "700px"},
 )
@@ -43,9 +43,9 @@ display(url_widget)
 # Quick liveness check
 try:
     from cosmos_t25_client import healthz
-    print("Cosmos API health:", healthz(url_widget.value))
+    print("Cosmos NIM health:", healthz(url_widget.value))
 except Exception as e:
-    print(f"(Cosmos API unreachable yet — OK if you haven't started cosmos-api): {e}")
+    print(f"(Cosmos NIM unreachable yet — set the URL above and re-run this cell): {e}")
 """
 
 PARAMS_CELL = """\
