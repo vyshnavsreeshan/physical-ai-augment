@@ -1,0 +1,73 @@
+# Brings up the SMMG notebook + the Cosmos T2.5 API server, networked together.
+#
+# Usage (from project root):
+#   docker compose -f docker/docker-compose.yml up -d
+#   open http://localhost:8888         (Jupyter Lab on the SMMG notebook)
+#   curl http://localhost:5001/healthz (Cosmos T2.5 API)
+#
+# Notebook reaches the Cosmos service at  http://cosmos-api:5000  on the shared
+# docker network. The host port 5001 is also forwarded for direct testing.
+
+services:
+  smmg-lab:
+    image: physical-ai-lab/smmg-blackwell:1.0
+    container_name: smmg-lab
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      ACCEPT_EULA: "Y"
+      OMNI_KIT_ACCEPT_EULA: "YES"
+      # Required for Isaac Sim's Vulkan-based renderer to see the GPU.
+      # `--gpus all` defaults to compute,utility — Vulkan/EGL/graphics need this.
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "all"
+      # Notebook will read this to know where Cosmos lives
+      COSMOS_API_URL: "http://cosmos-api:5000"
+    ports:
+      - "8888:8888"
+    volumes:
+      # share the host HF cache so weights aren't re-downloaded
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      # persistent project data, so generated trajectories survive restarts
+      - ../data:/workspace/data:rw
+      - ../checkpoints:/workspace/checkpoints:rw
+      - ../evaluation:/workspace/evaluation:rw
+    networks: [demo-net]
+    restart: unless-stopped
+
+  cosmos-api:
+    image: cosmos-transfer2.5:blackwell-api
+    container_name: cosmos-api
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    environment:
+      HF_TOKEN: "${HF_TOKEN:-}"
+    ports:
+      - "5001:5000"
+    volumes:
+      # Bind T2.5 source so the API can find /workspace/examples/inference.py
+      - ../third_party/cosmos-transfer2.5:/workspace
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - cosmos-jobs:/tmp/cosmos_jobs
+    networks: [demo-net]
+    restart: unless-stopped
+
+networks:
+  demo-net:
+    driver: bridge
+
+volumes:
+  cosmos-jobs:

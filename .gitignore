@@ -1,0 +1,61 @@
+# ─── Big regeneratable artifacts ────────────────────────────────────────
+# Python venv (rebuild via `uv venv && pip install ...`)
+env/
+.venv/
+*.egg-info/
+
+# Cloned upstream sources — instructions in README; clone on demand
+third_party/
+
+# Datasets pulled from HuggingFace (instructions in README)
+data/
+
+# Pre-trained checkpoints pulled from HuggingFace
+checkpoints/
+
+# Evaluation outputs (rollout MP4s, results files)
+evaluation/results/
+
+# Per-run logs
+logs/
+
+# ─── Python cruft ────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache/
+
+# ─── Notebook cruft ─────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ─── IDE / OS ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ─── Docker build cruft ─────────────────────────────────────────────────
+# Keep .dockerignore.cosmos-standalone (referenced by the build) but ignore
+# the build-time copy and any backups
+.dockerignore
+.dockerignore.bak
+
+# ─── Secrets ────────────────────────────────────────────────────────────
+.env
+.env.local
+*.token
+hf_token*
+
+# ─── Local outputs from running the notebook ────────────────────────────
+_isaaclab_out/
+_cosmos_out/
+generated_dataset.hdf5
+
+# ─── Misc ───────────────────────────────────────────────────────────────
+*.tmp
+*.bak
+*~

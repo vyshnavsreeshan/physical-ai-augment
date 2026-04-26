@@ -1,0 +1,10 @@
+# Used by docker/cosmos-api-standalone.Dockerfile (passed via --file).
+# We ship the cosmos-transfer2.5 source baked-in but exclude the local
+# uv venv and git history to keep image size sane.
+**/__pycache__
+**/*.pyc
+third_party/cosmos-transfer2.5/.venv
+third_party/cosmos-transfer2.5/.git
+third_party/cosmos-transfer2.5/docs
+third_party/cosmos-transfer2.5/tests
+third_party/cosmos-transfer2.5/.github
