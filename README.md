@@ -186,53 +186,6 @@ physical-ai-augment/
 │   └── PROJECT_PLAN.md                  # The 9-phase plan
 └── README.md
 ```
-
-The `.gitignore` excludes `env/`, `third_party/`, `data/`, `checkpoints/`,
-`evaluation/results/`, `logs/` — all regeneratable.
-
----
-
-## Status
-
-- [x] Phase 0 — Environment setup
-- [x] Phase 1 — Acquire baseline data (NVIDIA HF datasets)
-- [x] Phase 2 — HDF5 ↔ MP4 plumbing
-- [x] Phase 3 — Cosmos T2.5 native API + notebook port
-- [x] Phase 4 — Single-clip end-to-end demo (Mimic → Cosmos → photoreal MP4)
-- [ ] Phase 5 — Batch augmentation (small set, ~20 demos × 3 prompts)
-- [ ] Phase 6 — Fine-tune Policy B from NVIDIA's epoch_600 checkpoint
-- [ ] Phase 7 — Robust-eval comparison (Policy A vs B vs B-ft) across 6 settings
-- [ ] Phase 8 — Demo video + writeup
-
----
-
-## Notable design decisions
-
-1. **Why not just use the NGC `gr00t-smmg-bp:1.0` image?** It ships
-   torch 2.5.1+cu118 baked into Isaac Sim 4.5's prebundle. cu118 has no
-   `sm_120` kernels, and torch 2.5.1 has no cu128 wheels — incompatible
-   with Blackwell. Upgrading torch breaks Isaac Sim 4.5's compiled C++
-   extensions (warp-lang etc., built against the 2.5.1 ABI). Easier to
-   rebuild on a newer base.
-
-2. **Why a Flask wrapper instead of `docker run … python inference.py`?**
-   The notebook submits multiple prompts/configs interactively. A
-   long-lived API server is the right shape. Plus matches the SMMG
-   blueprint's two-machine Flask architecture.
-
-3. **Why software h264 in `encode_video`?** The upstream uses
-   `omni.videoencoding`'s NVENC wrapper. NVENC fails on Blackwell with
-   `NV_ENC_ERR_INVALID_PARAM`. imageio's libx264 takes <2 sec for the
-   120-frame clips we generate — not worth fighting NVENC.
-
-4. **Why `force_headless.py`?** Without explicit `args_cli.headless = True`,
-   AppLauncher loads the display-mode experience file and auto-degrades
-   to `--no-window`. The mismatched config means camera buffers don't
-   refresh between sim steps — frames written look identical even though
-   the env is moving.
-
----
-
 ## References
 
 - [NVIDIA Synthetic Manipulation Motion Generation
