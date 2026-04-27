@@ -87,7 +87,21 @@ docker pull nvcr.io/nim/nvidia/cosmos-transfer2.5-2b:1.0.0
 # 30-60 GB pull, takes 10-20 min on a fast link
 ```
 
-### 3. Build the SMMG image
+### 3. Get the SMMG image
+
+You have two options — pick one.
+
+**Option A — pull the prebuilt image from Docker Hub (fastest)**
+
+```bash
+docker pull vyshnavsreeshan05/smmg-blackwell:v1
+docker tag  vyshnavsreeshan05/smmg-blackwell:v1 \
+            physical-ai-lab/smmg-blackwell:1.0
+# ~17 GB pull (extracts to ~54 GB on disk), 10-15 min on a fast link.
+# The retag matches what docker-compose.yml expects.
+```
+
+**Option B — build from source (slower; required if you've changed the Dockerfile or patches)**
 
 ```bash
 docker build -f docker/smmg-blackwell.Dockerfile \

@@ -114,7 +114,9 @@ limited RAM on the Isaac Sim host.
 
 ## Setup — SMMG Container
 
-**Image:** `physical-ai-lab/smmg-blackwell:1.0` (built locally; ~54 GB)
+**Image:** `physical-ai-lab/smmg-blackwell:1.0` (~54 GB extracted on disk; ~17 GB compressed download)
+
+You can either pull it prebuilt from Docker Hub or build from source — both end up with the same image tag. Pull is recommended for first-time setup; build is needed if you've changed the Dockerfile or any of the patches in `smmg_patches/`.
 
 ### What's inside
 
@@ -145,7 +147,26 @@ Five patches handle drift between SMMG's original Isaac Lab 2.0.2 / Isaac Sim
 | `force_headless.py` | Without explicit `args_cli.headless = True`, AppLauncher loads the display-mode experience file then auto-degrades to `--no-window` — but with the wrong experience file, camera buffers don't refresh between sim steps and PNG dumps are stationary |
 | `imageio_encode.py` | Replaces `omni.videoencoding`'s NVENC wrapper (fails on Blackwell with `NV_ENC_ERR_INVALID_PARAM`) with software libx264 via imageio. Warp shading still runs on GPU — only encoding moves to CPU. |
 
-### How to build
+### How to get the image
+
+#### Option A — pull the prebuilt image (recommended)
+
+```bash
+docker pull vyshnavsreeshan05/smmg-blackwell:v1
+docker tag  vyshnavsreeshan05/smmg-blackwell:v1 \
+            physical-ai-lab/smmg-blackwell:1.0
+# ~17 GB pull (extracts to ~54 GB on disk), 10-15 min on a fast link.
+# The retag matches what docker-compose.yml and the docker run command
+# below expect. The image was built from this repo at the head SHA noted
+# in the Docker Hub description.
+```
+
+When to use Option A: first-time setup, OR you haven't changed any of the
+files baked into the image (Dockerfile, smmg_patches/, notebook_patch/,
+forks of IsaacLab / SMMG). Pulling is ~3× faster than building and burns
+no GPU / CPU cycles.
+
+#### Option B — build from source
 
 ```bash
 # from the project root
@@ -153,6 +174,10 @@ docker build -f docker/smmg-blackwell.Dockerfile \
     -t physical-ai-lab/smmg-blackwell:1.0 .
 # ~30 min the first time (Isaac Sim wheel download is the bulk)
 ```
+
+When to use Option B: you've changed the Dockerfile, added/edited a
+patch under `smmg_patches/`, modified the notebook source under
+`notebook_patch/`, or are bumping the IsaacLab / SMMG fork tags.
 
 ### How to run
 
@@ -595,7 +620,7 @@ you'd encounter them.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `pull access denied` for `physical-ai-lab/smmg-blackwell:1.0` | Image not built locally | `docker build -f docker/smmg-blackwell.Dockerfile -t physical-ai-lab/smmg-blackwell:1.0 .` |
+| `pull access denied` for `physical-ai-lab/smmg-blackwell:1.0` | Image not present locally (and not on a registry under that name) | Either pull + retag: `docker pull vyshnavsreeshan05/smmg-blackwell:v1 && docker tag vyshnavsreeshan05/smmg-blackwell:v1 physical-ai-lab/smmg-blackwell:1.0` — or build: `docker build -f docker/smmg-blackwell.Dockerfile -t physical-ai-lab/smmg-blackwell:1.0 .` |
 | `pull access denied` for `nvcr.io/nim/nvidia/cosmos-transfer2.5-2b` | Not logged in to NGC | `echo $NGC_API_KEY \| docker login nvcr.io --username '$oauthtoken' --password-stdin` |
 | NIM container crashloops with no logs | Forgot to set `NGC_API_KEY` env | `docker run -e NGC_API_KEY=$NGC_API_KEY ...` |
 
