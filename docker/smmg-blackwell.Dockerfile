@@ -51,8 +51,11 @@ RUN python3.11 -m pip install --upgrade pip setuptools==79.0.1 wheel && \
 RUN python3.11 -m pip install flatdict==4.0.1 --no-build-isolation
 
 # ── Isaac Lab v2.2.1 ───────────────────────────────────────────────────────
+# Pulled from our snapshot fork (vyshnavsreeshan/IsaacLab) rather than upstream
+# isaac-sim/IsaacLab so the build is reproducible — upstream main / tags can
+# move; the fork is frozen at the v2.2.1 SHA we tested against.
 RUN git -c advice.detachedHead=false clone --depth 1 --branch v2.2.1 \
-        https://github.com/isaac-sim/IsaacLab.git ${ISAACLAB_PATH}
+        https://github.com/vyshnavsreeshan/IsaacLab.git ${ISAACLAB_PATH}
 
 # isaaclab.sh --install pulls torch 2.7.0+cu128 (Blackwell-capable) and all
 # extension dependencies. The installer detects the pip-installed Isaac Sim

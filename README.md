@@ -68,13 +68,14 @@ deployment" below).
 git clone https://github.com/vyshnavsreeshan/physical-ai-augment.git
 cd physical-ai-augment
 
-# Upstream code we mount/COPY at build time. Both pinned to specific tags
-# so the build is reproducible — main branches drift, tags don't.
+# Upstream code we mount/COPY at build time. Pulled from our snapshot forks
+# (frozen at v2.2.1 / v1.0 — upstream main / tags can drift, our forks won't)
+# so the build is reproducible. To bump versions, refresh the forks first.
 mkdir -p third_party
 git -C third_party clone --depth 1 --branch v2.2.1 \
-    https://github.com/isaac-sim/IsaacLab.git
+    https://github.com/vyshnavsreeshan/IsaacLab.git
 git -C third_party clone --depth 1 --branch v1.0 \
-    https://github.com/NVIDIA-Omniverse-blueprints/synthetic-manipulation-motion-generation.git
+    https://github.com/vyshnavsreeshan/synthetic-manipulation-motion-generation.git
 ```
 
 ### 2. Authenticate to NGC and pull the Cosmos NIM
