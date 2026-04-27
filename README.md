@@ -68,11 +68,12 @@ deployment" below).
 git clone https://github.com/vyshnavsreeshan/physical-ai-augment.git
 cd physical-ai-augment
 
-# Upstream code we mount/COPY at build time
+# Upstream code we mount/COPY at build time. Both pinned to specific tags
+# so the build is reproducible — main branches drift, tags don't.
 mkdir -p third_party
 git -C third_party clone --depth 1 --branch v2.2.1 \
     https://github.com/isaac-sim/IsaacLab.git
-git -C third_party clone --depth 1 \
+git -C third_party clone --depth 1 --branch v1.0 \
     https://github.com/NVIDIA-Omniverse-blueprints/synthetic-manipulation-motion-generation.git
 ```
 
