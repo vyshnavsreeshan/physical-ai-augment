@@ -42,7 +42,7 @@ services:
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "all"
       # Notebook reads this; default targets the in-compose NIM.
-      COSMOS_API_URL: "http://cosmos-nim:8000"
+      COSMOS_API_URL: "${COSMOS_API_URL:-http://cosmos-nim:8000}"
     ports:
       - "8888:8888"
     volumes:
@@ -68,7 +68,10 @@ services:
     ulimits:
       nofile: 65536
     environment:
-      NGC_API_KEY: "${NGC_API_KEY:?set NGC_API_KEY in your shell — see docker-compose.yml header}"
+      # If you're running cosmos-nim locally, NGC_API_KEY must be set in your
+      # shell. For two-machine deployment (cosmos-nim on a remote host), the
+      # cosmos-nim service in this file is unused — leave NGC_API_KEY empty.
+      NGC_API_KEY: "${NGC_API_KEY:-}"
     ports:
       - "8000:8000"
     volumes:
